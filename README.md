@@ -11,7 +11,7 @@
 
 | | 電腦版 | 手機版 |
 |---|---|---|
-| 位置 | `autocoin/`（Python） | `android/`（Kotlin App「蝦幣助手」） |
+| 位置 | `autocoin/`（Python） | `android/`（Kotlin App「畫面輔助」） |
 | 怎麼控制手機 | ADB + uiautomator2 | 手機上的無障礙服務 |
 | 需要電腦開著 | 要 | 不用 |
 
@@ -26,7 +26,7 @@
    - 倒數到了就領，一直領到這場沒有直播間蝦幣為止。
    - 中途**不會離開**，因為離開會讓倒數重來。
 3. 有轉盤就轉。每間一次，一天 10 次。
-4. 每 30 分鐘開一次任務獎勵面板，領觀看任務的蝦幣。23:40 後一定會再開一次，因為這筆要當天領。
+4. 每 30 分鐘開一次任務獎勵面板（間隔有 ±25% 抖動），領觀看任務的蝦幣。23:35~23:50 之間會再開一次，因為這筆要當天領。
 5. 提領（可關閉）的條件：
    - 待提領 ≥ 5 時，選不超過餘額的最大面額。
    - 收尾時只要剩 ≥ 1 也會提領。
@@ -55,7 +55,7 @@ python -m venv .venv
 - 執行中手機會被操作，**不要同時用手機**。
 - 建議開啟「充電時保持螢幕常亮」，避免鎖屏中斷。
 
-## 手機版（蝦幣助手）
+## 手機版（畫面輔助）
 
 ```powershell
 cd D:\proj\shopee-autocoin\android
@@ -63,13 +63,39 @@ cd D:\proj\shopee-autocoin\android
 adb -P 5037 install -r app\build\outputs\apk\debug\app-debug.apk
 ```
 
-1. 開啟無障礙服務：設定 → 其他設定 → 無障礙 → 蝦幣助手 → 開啟。也可以在 App 裡按「開啟無障礙設定」。
+1. 開啟無障礙服務：設定 → 其他設定 → 無障礙 → 畫面輔助 → 開啟。也可以在 App 裡按「開啟無障礙設定」。
 2. 開始的方式有兩種：
    - 打開 App 按「開始」。
    - 點畫面最下面的小黑條「蝦幣 ■ 已停止」。
 3. App 會自己打開蝦皮開始領。要用手機時，點小黑條或在 App 裡按「停止」。
 4. 「自動提領」開關在 App 主畫面，關掉就只領不提領。
 5. 執行中，小黑條會讓螢幕保持亮著。如果手機被鎖住，程式會等你解鎖再繼續。
+
+## Nightly 建置（GitHub Actions）
+
+`.github/workflows/nightly.yml` 會在 push 到 `main`、每天台灣時間 02:00、或手動觸發時建 signed release APK，然後**更新同一個 `nightly` release**（固定檔名 `autocoin-nightly.apk`，每次覆蓋，不會愈積愈多）。
+
+需要在 repo 的 Settings → Secrets and variables → Actions 設好這三個：
+
+- `KEYSTORE_BASE64`：`base64 -w0 release.jks` 的輸出
+- `KEYSTORE_ALIAS`
+- `KEYSTORE_PASSWORD`（同時當 store password 和 key password）
+
+本機沒設這三個環境變數時，`build.gradle.kts` 不會建立 signing config，`assembleDebug` 照常可用。
+
+## 降低機器指紋
+
+風控不只看你裝了什麼，也看**行為的規律性**。所以等待時間與點擊座標都加了隨機抖動：
+
+- 所有等待走 `Jitter.ms()`（Kotlin）/ `doze()`（Python），預設 ±18%。
+- 點擊不再落在節點正中央，改成中心 ±9 px 的隨機點；滑動端點也一起位移。
+- 每個直播間的上限只往上抽（`Jitter.up()`）：觀看任務的 10 分鐘門檻往下抖會做不完，往上抖只是多待一下。
+- 面板間隔 ±25%，收尾時間從固定的 23:40 改成 23:35~23:50 之間每天固定一個值。
+- 倒數醒來的提前量從固定 2 秒改成 1~6 秒隨機。
+
+抖動量可調：Python 在 `autocoin/config.py` 的 `jitter` / `tap_jitter_px`，Kotlin 在 `Jitter.kt` 的預設參數。
+
+另外無障礙服務的 `app_name` / `service_description` 刻意寫成中性的「畫面輔助」，因為 `getInstalledAccessibilityServiceList()` 會把這兩個字串連同 package 一起讀走。
 
 ## 風險
 

@@ -1,5 +1,9 @@
 <?xml version="1.0" encoding="utf-8"?>
+<!--
+  這兩個字串會被 getInstalledAccessibilityServiceList() 連同 package 一起讀走，
+  所以刻意寫得中性：不要出現「自動領取」、「蝦幣」、「直播間」這類意圖描述。
+-->
 <resources>
-    <string name="app_name">蝦幣助手</string>
-    <string name="service_description">讀取蝦皮直播間的畫面，自動領取直播間蝦幣、觀看任務、幸運轉盤，並提領到我的蝦幣。</string>
+    <string name="app_name">畫面輔助</string>
+    <string name="service_description">協助讀取畫面上的文字與按鈕位置，方便操作時快速找到需要的項目。</string>
 </resources>

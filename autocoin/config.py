@@ -24,5 +24,9 @@ class Config:
     withdraw_min: float = 5.0        # 待提領至少這麼多才提領；每天最後一次面板會提領剩下的（≥1）
     withdraw_daily_limit: int = 3
 
+    # 節奏抖動：等待時間與點擊座標都加隨機擾動，避免固定週期變成風控特徵
+    jitter: float = 0.18            # 等待時間 ±18%
+    tap_jitter_px: int = 9          # 點擊座標 ±9 px
+
     state_path: str = "state.json"
     log_dir: str = "logs"

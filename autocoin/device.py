@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import logging
+import random
 import time
 
 import adbutils
@@ -85,14 +86,25 @@ class Device:
         self._retry(lambda: self.d.screenshot(path))
 
     # ---------- 操作 ----------
+    # 抖動量：每次都點同一個像素、滑動時間一模一樣，是很明顯的機器特徵
+    tap_jitter_px = 9
+    swipe_jitter = 0.3
+
+    def _jitter_xy(self, x: int, y: int) -> tuple[int, int]:
+        r = self.tap_jitter_px
+        return x + random.randint(-r, r), y + random.randint(-r, r)
+
     def tap(self, x: int, y: int):
-        self._retry(lambda: self.d.click(x, y))
+        jx, jy = self._jitter_xy(x, y)
+        self._retry(lambda: self.d.click(jx, jy))
 
     def tap_node(self, node: Node):
-        self.tap(*node.center)
+        self.tap(*node.spot)
 
     def swipe(self, fx: int, fy: int, tx: int, ty: int, duration: float = 0.4):
-        self._retry(lambda: self.d.swipe(fx, fy, tx, ty, duration=duration))
+        dx, dy = random.randint(-12, 12), random.randint(-12, 12)
+        dur = max(0.05, duration * random.uniform(1 - self.swipe_jitter, 1 + self.swipe_jitter))
+        self._retry(lambda: self.d.swipe(fx + dx, fy + dy, tx + dx, ty + dy, duration=dur))
 
     def back(self):
         self._retry(lambda: self.d.press("back"))

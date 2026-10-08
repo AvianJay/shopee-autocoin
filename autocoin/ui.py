@@ -1,6 +1,7 @@
 """uiautomator 階層 XML 的解析與查詢。"""
 from __future__ import annotations
 
+import random
 import re
 from typing import Iterable, Iterator
 
@@ -44,6 +45,13 @@ class Node:
     def center(self) -> tuple[int, int]:
         x1, y1, x2, y2 = self.bounds
         return (x1 + x2) // 2, (y1 + y2) // 2
+
+    @property
+    def spot(self) -> tuple[int, int]:
+        """節點內的隨機一點：每次都點正中央是同一個像素，很好認。"""
+        cx, cy = self.center
+        r = min(10, max(2, min(self.width, self.height) // 3))
+        return cx + random.randint(-r, r), cy + random.randint(-r, r)
 
     @property
     def width(self) -> int:

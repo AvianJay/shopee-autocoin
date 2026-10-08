@@ -70,7 +70,12 @@ class Bot(
 
     // ---------------- 基本工具 ----------------
     private fun now() = System.currentTimeMillis()
-    private fun sleep(ms: Long) = Thread.sleep(ms)  // 按停止會 interrupt，丟出 InterruptedException 就整個結束
+    private fun sleep(ms: Long) = Thread.sleep(Jitter.ms(ms))  // 按停止會 interrupt，丟出 InterruptedException 就整個結束
+
+    // 每個直播間用不同的上限，避免「每次都剛好待 10.5 分鐘」這種固定週期指紋
+    private val roomCaps = HashMap<String, Double>()
+    private fun roomCap(key: String, base: Double, pct: Double = 0.25): Double =
+        roomCaps.getOrPut("$key@$base") { Jitter.up(base, pct) }
 
     private fun look(): Pair<Screen, Snap> {
         val s = phone.snapshot()
@@ -423,9 +428,9 @@ class Bot(
             }
 
             val elapsed = now() - start
-            if (elapsed > cfg.maxRoomMinutes * 60_000) return "timeout" to key
+            if (elapsed > roomCap(key, cfg.maxRoomMinutes) * 60_000) return "timeout" to key
             if (purpose == "watch") {
-                if (elapsed > cfg.watchRoomMinutes * 60_000) return "watched" to key
+                if (elapsed > roomCap(key, cfg.watchRoomMinutes) * 60_000) return "watched" to key
                 status("累積觀看任務｜${key.take(12)}")
                 sleep(20_000)
                 continue
@@ -456,7 +461,7 @@ class Bot(
             }
             oddState = 0L
             status("${key.take(12)}｜${r.coin.state} 後領 ${r.coin.coin ?: "?"}｜今天 ${day.coinClaims} 次 +%.2f".format(day.coinTotal))
-            var nap = secs - 2
+            var nap = secs - Jitter.int(1, 6)  // 不要每次都剛好提前 2 秒醒
             for (state in r.rains.values) countdown(state)?.let { nap = minOf(nap, it - 2) }  // 紅包雨快開始時要醒著
             sleep(nap.coerceIn(1, 20) * 1000L)
         }
@@ -598,11 +603,26 @@ class Bot(
 
     // ---------------- 任務獎勵面板 ----------------
     private fun panelDue(): Boolean {
-        if (now() - day.lastPanel > cfg.panelEveryMinutes * 60_000) return true
-        // 觀看任務的蝦幣要當天領，23:40 之後一定再開一次
-        val late = LocalDateTime.now().withHour(23).withMinute(40).withSecond(0).withNano(0)
-            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
+        // 門檻每個週期只抽一次，避免「每跑一圈都重抽」而提早觸發
+        val base = (cfg.panelEveryMinutes * 60_000).toLong()
+        if (panelKey != day.lastPanel) {
+            panelKey = day.lastPanel
+            panelThresholdMs = Jitter.ms(base, 0.25)
+        }
+        if (now() - day.lastPanel > panelThresholdMs) return true
+        // 觀看任務的蝦幣要當天領，23:35~23:50 之間隨機挑一個時間點再開一次
+        val late = latePanelAt()
         return now() >= late && day.lastPanel < late
+    }
+
+    private var panelKey = -1L
+    private var panelThresholdMs = 0L
+
+    /** 每天固定的收尾時間（同一天內固定，換日才會變）。 */
+    private fun latePanelAt(): Long {
+        val minute = 35 + (day.date.hashCode().mod(16))
+        return LocalDateTime.now().withHour(23).withMinute(minute).withSecond(0).withNano(0)
+            .atZone(ZoneId.systemDefault()).toInstant().toEpochMilli()
     }
 
     private fun pendingAmount(s: Snap): Double? {

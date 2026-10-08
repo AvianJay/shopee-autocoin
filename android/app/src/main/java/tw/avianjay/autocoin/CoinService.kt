@@ -168,10 +168,20 @@ class CoinService : AccessibilityService(), Phone {
         return Snap.build(roots, foreground(), shopeeWindowClass)
     }
 
-    override fun tap(p: Pt) = gesture(Path().apply { moveTo(p.x.toFloat(), p.y.toFloat()) }, 60)
+    // 點擊位置與按壓時間都加抖動：不要每次都落在節點正中央的同一個像素
+    override fun tap(p: Pt) {
+        val j = Jitter.wobble(p, width, height)
+        gesture(Path().apply { moveTo(j.x.toFloat(), j.y.toFloat()) }, Jitter.ms(60, 0.5))
+    }
 
-    override fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Long) =
-        gesture(Path().apply { moveTo(x1.toFloat(), y1.toFloat()); lineTo(x2.toFloat(), y2.toFloat()) }, ms)
+    override fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Long) {
+        val dx = Jitter.int(-12, 12)
+        val dy = Jitter.int(-12, 12)
+        gesture(Path().apply {
+            moveTo((x1 + dx).toFloat(), (y1 + dy).toFloat())
+            lineTo((x2 + dx).toFloat(), (y2 + dy).toFloat())
+        }, Jitter.ms(ms, 0.3))
+    }
 
     private fun gesture(path: Path, ms: Long) {
         val done = CountDownLatch(1)
@@ -181,12 +191,12 @@ class CoinService : AccessibilityService(), Phone {
             override fun onCancelled(g: GestureDescription?) = done.countDown()
         }, null)
         if (ok) done.await(ms + 2000, TimeUnit.MILLISECONDS)
-        Thread.sleep(80)
+        Thread.sleep(Jitter.ms(80, 0.6))
     }
 
     override fun back() {
         performGlobalAction(GLOBAL_ACTION_BACK)
-        Thread.sleep(100)
+        Thread.sleep(Jitter.ms(100, 0.6))
     }
 
     override fun foreground(): String = rootInActiveWindow?.packageName?.toString() ?: ""
