@@ -1,0 +1,15 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  flagReportViewIds：拿得到 resource-id（box_view_coin_streamer 之類）
+  flagIncludeNotImportantViews：沒有文字的容器也要，跟 uiautomator dump 看到的一樣
+  flagRetrieveInteractiveWindows：直播浮窗、對話框在別的視窗裡
+  typeNotificationStateChanged：抓 Toast 文字（每日上限之類的提示）
+-->
+<accessibility-service xmlns:android="http://schemas.android.com/apk/res/android"
+    android:accessibilityEventTypes="typeWindowStateChanged|typeNotificationStateChanged"
+    android:accessibilityFeedbackType="feedbackGeneric"
+    android:accessibilityFlags="flagReportViewIds|flagIncludeNotImportantViews|flagRetrieveInteractiveWindows"
+    android:canPerformGestures="true"
+    android:canRetrieveWindowContent="true"
+    android:description="@string/service_description"
+    android:notificationTimeout="100" />
