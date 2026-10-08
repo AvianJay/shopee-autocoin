@@ -32,13 +32,20 @@ jobs:
           distribution: temurin
           java-version: "21"
 
+      # 不用 android-actions/setup-android：它會去裝已經被移除的 "tools" 套件而失敗。
+      # GitHub 的 ubuntu runner 本來就裝好 Android SDK 了，直接用它的 sdkmanager。
       - name: Set up Android SDK
-        uses: android-actions/setup-android@v3
-
-      - name: Accept SDK licenses
         run: |
-          yes | sdkmanager --licenses > /dev/null 2>&1 || true
-          sdkmanager "platforms;android-36" > /dev/null 2>&1 || true
+          set -euo pipefail
+          SDK="${ANDROID_HOME:-/usr/local/lib/android/sdk}"
+          MGR="$(find "$SDK/cmdline-tools" -type f -name sdkmanager 2>/dev/null | head -n1 || true)"
+          echo "ANDROID_HOME=$SDK" >> "$GITHUB_ENV"
+          echo "sdkmanager: ${MGR:-<找不到，交給 Gradle 自動下載>}"
+          if [ -n "$MGR" ]; then
+            yes | "$MGR" --licenses > /dev/null 2>&1 || true
+            "$MGR" --install "platforms;android-36" "platform-tools" > /dev/null 2>&1 || true
+          fi
+          ls "$SDK/platforms" 2>/dev/null || true
 
       - name: Cache Gradle
         uses: actions/cache@v4
