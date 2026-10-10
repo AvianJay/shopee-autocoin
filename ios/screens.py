@@ -32,8 +32,8 @@ def _yellow(r, g, b):  # 面板上觀看任務的「領取」
 
 
 def clean(text: str) -> str:
-    """OCR 常見的誤讀：小數點讀成「·」、0 讀成 O。只拿來解析數字，不要拿來比對名字。"""
-    return (text.replace("·", ".").replace("O", "0").replace("o", "0")
+    """OCR 常見的誤讀：小數點讀成「·」或「,」、0 讀成 O。只拿來解析數字，不要拿來比對名字。"""
+    return (text.replace("·", ".").replace(",", ".").replace("O", "0").replace("o", "0")
             .replace("：", ":").replace(" ", ""))
 
 
