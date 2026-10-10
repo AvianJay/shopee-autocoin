@@ -1,0 +1,11 @@
+# iOS 版（只能在 Windows 上跑：OCR 用的是 Windows 內建的 Windows.Media.Ocr）
+numpy>=2
+pillow>=11
+winrt-runtime>=3.2
+winrt-Windows.Foundation>=3.2
+winrt-Windows.Foundation.Collections>=3.2
+winrt-Windows.Globalization>=3.2
+winrt-Windows.Graphics.Imaging>=3.2
+winrt-Windows.Media.Ocr>=3.2
+winrt-Windows.Storage>=3.2
+winrt-Windows.Storage.Streams>=3.2

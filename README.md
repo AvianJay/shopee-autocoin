@@ -7,13 +7,13 @@
 - **觀看直播任務**：定時開任務面板，把累積的蝦幣領進「待提領」。
 - **提領**（可關閉）：把「待提領」轉進「我的蝦幣」。
 
-有兩個版本，邏輯相同：
+有三個版本，邏輯相同：
 
-| | 電腦版 | 手機版 |
-|---|---|---|
-| 位置 | `autocoin/`（Python） | `android/`（Kotlin App「畫面輔助」） |
-| 怎麼控制手機 | ADB + uiautomator2 | 手機上的無障礙服務 |
-| 需要電腦開著 | 要 | 不用 |
+| | 電腦版 | 手機版 | iOS 版 |
+|---|---|---|---|
+| 位置 | `autocoin/`（Python） | `android/`（Kotlin App「畫面輔助」） | `ios/`（Python） |
+| 怎麼控制手機 | ADB + uiautomator2 | 手機上的無障礙服務 | iPhone 上的 [TouchSynthesis](https://github.com/AnotherAvianJay/TouchSynthesis) + Windows OCR |
+| 需要電腦開著 | 要 | 不用 | 要 |
 
 研究過程與畫面元件的細節在 [RESEARCH.md](RESEARCH.md)。
 
@@ -70,6 +70,33 @@ adb -P 5037 install -r app\build\outputs\apk\debug\app-debug.apk
 3. App 會自己打開蝦皮開始領。要用手機時，點小黑條或在 App 裡按「停止」。
 4. 「自動提領」開關在 App 主畫面，關掉就只領不提領。
 5. 執行中，小黑條會讓螢幕保持亮著。如果手機被鎖住，程式會等你解鎖再繼續。
+
+## iOS 版
+
+iPhone 上裝 TouchSynthesis（AnotherAvianJay 的 fork，CI 產的 IPA 用 SideStore 裝），電腦跟手機在同一個 Wi-Fi。需要 Windows 的「中文(台灣)」OCR 元件。
+
+1. 手機：「自動鎖定」設成「永不」，打開 TouchSynthesis 按 Start UI Automation → Start Server，再切到蝦皮的「直播」分頁。
+2. 電腦：
+
+```powershell
+.venv\Scripts\pip install -r ios\requirements.txt
+$env:TS_HOST = "192.168.31.196"                 # 手機的 IP
+.venv\Scripts\python ios\bot.py run             # 開始（Ctrl+C 停止）
+.venv\Scripts\python ios\bot.py run --hours 3 --no-withdraw
+.venv\Scripts\python ios\bot.py status          # 今天的統計
+.venv\Scripts\python ios\bot.py panel           # 開一次任務面板
+.venv\Scripts\python ios\bot.py look            # 印出目前畫面的判讀結果（除錯用）
+```
+
+跟 Android 版的差別：
+
+- iOS 讀不到元件樹，畫面全靠截圖 OCR。「領取」按鈕看的是顏色（直播間是橘色，面板是黃色）。
+- 沒有「看更多」列表，改成往上滑換台，找有「直播間蝦幣」的直播間。滑了 15 間都沒有的話，就在當下那間累積觀看任務。
+- 觀看任務的倒數停住 90 秒，就當作這間的 10 分鐘已經算滿。
+- 轉盤、紅包雨還沒做。
+- 開不了 App。畫面認不得時只按一次返回，之後就等你把手機切回蝦皮的直播間，不會亂點。
+- 等待與點擊沒有抖動。
+- 統計存在 `state-ios.json`（iOS 跟 Android 是不同的蝦皮帳號），紀錄檔在 `logs/ios.log`，沒看過的畫面存在 `logs/captures-ios/`。
 
 ## Nightly 建置（GitHub Actions）
 

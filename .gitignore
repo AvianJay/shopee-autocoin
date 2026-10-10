@@ -12,6 +12,7 @@ env/
 # Runtime output and local state
 logs/
 state.json
+state-ios.json
 *.log
 
 # Android and Gradle
