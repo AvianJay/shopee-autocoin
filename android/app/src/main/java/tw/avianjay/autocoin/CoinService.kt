@@ -17,6 +17,8 @@ import android.view.accessibility.AccessibilityNodeInfo
 import android.widget.TextView
 import java.io.File
 import java.util.concurrent.CountDownLatch
+import java.util.concurrent.ExecutionException
+import java.util.concurrent.FutureTask
 import java.util.concurrent.TimeUnit
 
 /**
@@ -35,6 +37,7 @@ class CoinService : AccessibilityService(), Phone {
 
     private val main = Handler(Looper.getMainLooper())
     @Volatile private var worker: Thread? = null
+    @Volatile private var stopRequested = true
     @Volatile private var toast = ""
     @Volatile private var shopeeWindowClass = ""
     @Volatile var statusText = "已停止"
@@ -43,7 +46,8 @@ class CoinService : AccessibilityService(), Phone {
     private var badge: TextView? = null
     private var badgeParams: WindowManager.LayoutParams? = null
 
-    val running get() = worker?.isAlive == true
+    val running get() = worker != null && !stopRequested
+    val stopping get() = worker != null && stopRequested
 
     override fun onServiceConnected() {
         AppLog.init(this)
@@ -61,7 +65,7 @@ class CoinService : AccessibilityService(), Phone {
         }
     }
 
-    override fun onInterrupt() {}
+    override fun onInterrupt() = stopBot()
 
     override fun onUnbind(intent: Intent?): Boolean {
         stopBot()
@@ -70,39 +74,71 @@ class CoinService : AccessibilityService(), Phone {
         return super.onUnbind(intent)
     }
 
+    override fun onDestroy() {
+        stopBot()
+        hideBadge()
+        if (instance === this) instance = null
+        super.onDestroy()
+    }
+
     // ---------------- 開始 / 停止 ----------------
     fun startBot() {
-        if (running) return
-        val bot = Bot(this, Store(this), Settings(this)) { setStatus(it) }
-        worker = Thread({
+        // 舊工作確實結束後才能再開，避免兩個 bot 同時操作或寫入統計。
+        if (worker != null) return
+        stopRequested = false
+        val thread = Thread({
+            val current = Thread.currentThread()
             try {
+                val bot = Bot(this, Store(this), Settings(this)) { text ->
+                    main.post {
+                        if (worker === current && !stopRequested) setStatus(text)
+                    }
+                }
                 bot.run()
             } finally {
-                if (worker === Thread.currentThread()) worker = null
-                showStopped()
+                main.post {
+                    if (worker === current) {
+                        worker = null
+                        stopRequested = true
+                        showStopped()
+                    }
+                }
             }
-        }, "autocoin").apply { start() }
+        }, "autocoin")
+        worker = thread
         setStatus("執行中")
         keepScreenOn(true)
+        thread.start()
     }
 
     fun stopBot() {
+        // interrupt 可能被 Android 的讀取 UI 流程消耗；停止狀態必須另外保留。
+        stopRequested = true
         worker?.interrupt()
-        worker = null
-        showStopped()
+        if (worker == null) {
+            showStopped()
+        } else {
+            statusText = "停止中…"
+            badge?.apply {
+                text = "蝦幣 ■ 停止中…"
+                isEnabled = false
+            }
+            keepScreenOn(false)
+        }
     }
 
     private fun setStatus(text: String) {
         statusText = text
-        main.post { badge?.text = "蝦幣 ▶ $text" }
+        badge?.text = "蝦幣 ▶ $text"
     }
 
     private fun showStopped() {
         statusText = "已停止"
-        main.post {
-            badge?.text = STOPPED
-            keepScreenOn(false)
+        badge?.apply {
+            text = STOPPED
+            isEnabled = true
         }
+        keepScreenOn(false)
     }
 
     // ---------------- 狀態列浮窗 ----------------
@@ -150,12 +186,40 @@ class CoinService : AccessibilityService(), Phone {
     }
 
     // ---------------- Phone ----------------
-    override val ownPackage: String get() = packageName
     override val width: Int get() = resources.displayMetrics.widthPixels
     override val height: Int
         get() = getSystemService(WindowManager::class.java).currentWindowMetrics.bounds.height()
 
+    override fun checkActive() = checkActive(Thread.currentThread())
+
+    private fun checkActive(thread: Thread) {
+        if (stopRequested || worker !== thread || thread.isInterrupted) throw InterruptedException()
+    }
+
+    // 操作與停止都在主執行緒排序；排隊中的操作執行前也要重新確認。
+    private fun <T> botAction(requireShopee: Boolean = true, action: () -> T): T {
+        val current = Thread.currentThread()
+        checkActive(current)
+        val task = FutureTask {
+            checkActive(current)
+            if (requireShopee && (foreground() != SHOPEE || !screenOn() || locked())) {
+                throw AppInBackground()
+            }
+            action()
+        }
+        main.post(task)
+        try {
+            return task.get()
+        } catch (e: InterruptedException) {
+            task.cancel(false)
+            throw e
+        } catch (e: ExecutionException) {
+            throw (e.cause ?: e)
+        }
+    }
+
     override fun snapshot(): Snap {
+        checkActive()
         val roots = ArrayList<AccessibilityNodeInfo>()
         try {
             for (w in windows) {
@@ -165,7 +229,9 @@ class CoinService : AccessibilityService(), Phone {
         } catch (_: Exception) {
         }
         if (roots.isEmpty()) rootInActiveWindow?.takeIf { it.packageName == SHOPEE }?.let { roots.add(it) }
-        return Snap.build(roots, foreground(), shopeeWindowClass)
+        val snap = Snap.build(roots, foreground(), shopeeWindowClass)
+        checkActive()
+        return snap
     }
 
     // 點擊位置與按壓時間都加抖動：不要每次都落在節點正中央的同一個像素
@@ -186,17 +252,21 @@ class CoinService : AccessibilityService(), Phone {
     private fun gesture(path: Path, ms: Long) {
         val done = CountDownLatch(1)
         val stroke = GestureDescription.StrokeDescription(path, 0, ms)
-        val ok = dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), object : GestureResultCallback() {
-            override fun onCompleted(g: GestureDescription?) = done.countDown()
-            override fun onCancelled(g: GestureDescription?) = done.countDown()
-        }, null)
+        val ok = botAction {
+            dispatchGesture(GestureDescription.Builder().addStroke(stroke).build(), object : GestureResultCallback() {
+                override fun onCompleted(g: GestureDescription?) = done.countDown()
+                override fun onCancelled(g: GestureDescription?) = done.countDown()
+            }, main)
+        }
         if (ok) done.await(ms + 2000, TimeUnit.MILLISECONDS)
         Thread.sleep(Jitter.ms(80, 0.6))
+        checkActive()
     }
 
     override fun back() {
-        performGlobalAction(GLOBAL_ACTION_BACK)
+        botAction { performGlobalAction(GLOBAL_ACTION_BACK) }
         Thread.sleep(Jitter.ms(100, 0.6))
+        checkActive()
     }
 
     override fun foreground(): String = rootInActiveWindow?.packageName?.toString() ?: ""
@@ -205,17 +275,15 @@ class CoinService : AccessibilityService(), Phone {
 
     override fun locked() = getSystemService(KeyguardManager::class.java).isKeyguardLocked
 
-    override fun launchShopee() {
+    override fun launchShopee(initial: Boolean) {
         val intent = packageManager.getLaunchIntentForPackage(SHOPEE) ?: run {
             AppLog.w("找不到蝦皮 App")
             return
         }
-        startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        botAction(requireShopee = !initial) {
+            startActivity(intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK))
+        }
     }
-
-    override fun homePackage(): String =
-        packageManager.resolveActivity(Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_HOME), 0)
-            ?.activityInfo?.packageName ?: ""
 
     override fun lastToast() = toast
 

@@ -10,9 +10,9 @@ import kotlin.math.roundToInt
 
 /** Bot 需要手機提供的操作，由無障礙服務實作。 */
 interface Phone {
-    val ownPackage: String
     val width: Int
     val height: Int
+    fun checkActive()
     fun snapshot(): Snap
     fun tap(p: Pt)
     fun swipe(x1: Int, y1: Int, x2: Int, y2: Int, ms: Long = 400)
@@ -20,14 +20,14 @@ interface Phone {
     fun foreground(): String
     fun screenOn(): Boolean
     fun locked(): Boolean
-    fun launchShopee()
-    fun homePackage(): String
+    fun launchShopee(initial: Boolean = false)
     fun lastToast(): String
     fun clearToast()
     fun save(name: String, content: String)
 }
 
 class StopBot(msg: String) : Exception(msg)
+class AppInBackground : Exception()
 
 // App 內的提示文字（取自 APK 的 zh-rTW 字串）
 private val MSG_RISK = listOf("不符合領取此獎勵資格", "偵測到風險活動", "您已達多裝置使用上限", "已達裝置數限制")
@@ -61,7 +61,6 @@ class Bot(
     private val status: (String) -> Unit,
 ) {
     private val day get() = store.day
-    private val homePkg by lazy { phone.homePackage() }
     private val rainSeen = HashSet<String>()
 
     // 原本在 1080x2400 上量的座標，換算成目前螢幕
@@ -70,7 +69,11 @@ class Bot(
 
     // ---------------- 基本工具 ----------------
     private fun now() = System.currentTimeMillis()
-    private fun sleep(ms: Long) = Thread.sleep(Jitter.ms(ms))  // 按停止會 interrupt，丟出 InterruptedException 就整個結束
+    private fun sleep(ms: Long) {
+        phone.checkActive()
+        Thread.sleep(Jitter.ms(ms))
+        phone.checkActive()
+    }
 
     // 每個直播間用不同的上限，避免「每次都剛好待 10.5 分鐘」這種固定週期指紋
     private val roomCaps = HashMap<String, Double>()
@@ -96,6 +99,8 @@ class Bot(
         try {
             val snap = s ?: phone.snapshot()
             phone.save("${LocalDateTime.now().format(STAMP)}-${tag.replace(Regex("""[^\w.-]+"""), "_")}.txt", snap.dump())
+        } catch (e: InterruptedException) {
+            throw e
         } catch (e: Exception) {
             AppLog.d("存畫面失敗：$e")
         }
@@ -120,10 +125,11 @@ class Bot(
         return if (hit(MSG_ROOM_DONE) != null) "room_done" else ""
     }
 
-    // ---------------- 讓蝦皮待在前景 ----------------
+    // ---------------- 等使用者回到蝦皮，不搶走其他 App 的前景 ----------------
     private fun ensureApp() {
         var waiting = ""
         while (true) {
+            phone.checkActive()
             if (!phone.screenOn() || phone.locked()) {
                 if (waiting != "screen") {
                     AppLog.w("螢幕關著或鎖定中，等解鎖…")
@@ -138,23 +144,12 @@ class Bot(
                 if (waiting.isNotEmpty()) AppLog.i("蝦皮回到前景，繼續")
                 return
             }
-            if (pkg.isEmpty() || pkg == homePkg || pkg == phone.ownPackage) {
-                AppLog.i("打開蝦皮")
-                phone.launchShopee()
-                sleep(8000)
-                continue
-            }
-            if (pkg == "android" || pkg == "com.android.intentresolver") {  // 分享選單之類的系統視窗
-                phone.back()
-                sleep(1000)
-                continue
-            }
             if (waiting != pkg) {
                 AppLog.i("前景是 $pkg，可能有人在用手機，等它結束…")
                 waiting = pkg
             }
-            status("等待中（$pkg 在前景）")
-            sleep(30_000)
+            status("已暫停，請切回蝦皮繼續")
+            sleep(2000)
         }
     }
 
@@ -761,14 +756,27 @@ class Bot(
     fun run() {
         AppLog.i("開始：${store.summary()}")
         try {
+            phone.checkActive()
+            // 只有使用者按「開始」時可以從桌面或其他 App 開啟蝦皮。
+            while (!phone.screenOn() || phone.locked()) {
+                status("等待解鎖")
+                sleep(2000)
+            }
+            if (phone.foreground() != SHOPEE) {
+                phone.launchShopee(initial = true)
+                sleep(8000)
+            }
             while (true) {
                 try {
+                    phone.checkActive()
                     ensureApp()
                     cycle()
                 } catch (e: StopBot) {
                     throw e
                 } catch (e: InterruptedException) {
                     throw e
+                } catch (_: AppInBackground) {
+                    // 讀畫面與送出操作之間切到桌面時，回到等待流程。
                 } catch (e: Exception) {
                     AppLog.e("出錯了，10 秒後繼續", e)
                     sleep(10_000)

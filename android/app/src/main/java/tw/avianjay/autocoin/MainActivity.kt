@@ -17,6 +17,7 @@ class MainActivity : Activity() {
     private val handler = Handler(Looper.getMainLooper())
     private lateinit var serviceState: TextView
     private lateinit var startStop: Button
+    private var stopDisplayed = false
     private lateinit var summary: TextView
     private lateinit var logView: TextView
 
@@ -41,7 +42,8 @@ class MainActivity : Activity() {
         startStop = Button(this).apply {
             setOnClickListener {
                 val svc = CoinService.instance ?: return@setOnClickListener
-                if (svc.running) svc.stopBot() else svc.startBot()
+                // 按鈕動作跟顯示的文字一致，避免狀態刷新前按「停止」反而重新開始。
+                if (stopDisplayed) svc.stopBot() else svc.startBot()
                 refresh()
             }
         }
@@ -52,7 +54,7 @@ class MainActivity : Activity() {
         }
         val hint = TextView(this).apply {
             textSize = 12f
-            text = "執行中請讓蝦皮停在前景、不要鎖螢幕。畫面最下面的小黑條也可以開始／停止。"
+            text = "離開蝦皮會暫停操作，切回蝦皮繼續。按「停止」後需再按「開始」才會執行。畫面最下面的小黑條也可以開始／停止。"
         }
         summary = TextView(this).apply {
             textSize = 13f
@@ -93,8 +95,13 @@ class MainActivity : Activity() {
         val svc = CoinService.instance
         serviceState.text = if (svc == null) "無障礙服務：未開啟（請在設定裡開啟「蝦幣助手」）"
         else "無障礙服務：已開啟｜${svc.statusText}"
-        startStop.isEnabled = svc != null
-        startStop.text = if (svc?.running == true) "停止" else "開始"
+        startStop.isEnabled = svc != null && !svc.stopping
+        stopDisplayed = svc?.running == true || svc?.stopping == true
+        startStop.text = when {
+            svc?.stopping == true -> "停止中…"
+            svc?.running == true -> "停止"
+            else -> "開始"
+        }
         summary.text = Store(this).summary().replace("｜", "\n")
         logView.text = AppLog.recent(150).asReversed().joinToString("\n")
     }
